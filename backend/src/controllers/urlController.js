@@ -1,4 +1,5 @@
 const generateShortcode = require('../utils/shortcodeGenerator');
+const { log } = require('../utils/logClient');
 
 let urlDatabase = {}; // Example in-memory store: { shortcode: { originalUrl, createdAt, expiry, clicks: [] } }
 
@@ -15,12 +16,14 @@ exports.createShortUrl = (req, res) => {
   const { url, validity = 30, shortcode } = req.body;
 
   if (!url || !isValidUrl(url)) {
+    log('backend', 'error', 'handler', 'invalid or missing url');
     return res.status(400).json({ error: 'Invalid or missing URL' });
   }
 
   // If user provided a specific shortcode, enforce uniqueness strictly
   if (shortcode) {
     if (urlDatabase[shortcode]) {
+      log('backend', 'warn', 'handler', `duplicate shortcode requested: ${shortcode}`);
       return res.status(409).json({ error: 'Shortcode already exists' });
     }
   }
@@ -34,6 +37,7 @@ exports.createShortUrl = (req, res) => {
       safetyCounter += 1;
     }
     if (urlDatabase[finalShortcode]) {
+      log('backend', 'error', 'service', 'failed to generate unique shortcode');
       return res.status(500).json({ error: 'Failed to generate unique shortcode' });
     }
   }
@@ -48,6 +52,7 @@ exports.createShortUrl = (req, res) => {
     clicks: []
   };
 
+  log('backend', 'info', 'service', `short url created: ${finalShortcode}`);
   return res.status(201).json({
     shortLink: `${req.protocol}://${req.get('host')}/${finalShortcode}`,
     originalUrl: url,
@@ -61,6 +66,7 @@ exports.getUrlStats = (req, res) => {
   const entry = urlDatabase[shortcode];
 
   if (!entry) {
+    log('backend', 'warn', 'handler', `stats requested for missing shortcode: ${shortcode}`);
     return res.status(404).json({ error: 'Shortcode not found' });
   }
 
@@ -77,11 +83,13 @@ exports.redirectToOriginal = (req, res) => {
   const { shortcode } = req.params;
   const entry = urlDatabase[shortcode];
   if (!entry) {
+    log('backend', 'warn', 'route', `redirect for missing shortcode: ${shortcode}`);
     return res.status(404).send('Shortcode not found');
   }
 
   const now = new Date();
   if (new Date(entry.expiry) < now) {
+    log('backend', 'info', 'route', `expired shortcode accessed: ${shortcode}`);
     return res.status(410).send('Short URL expired');
   }
 
@@ -91,5 +99,6 @@ exports.redirectToOriginal = (req, res) => {
     location: req.ip // Assuming IP-based location; geo lookup can be added
   });
 
+  log('backend', 'info', 'route', `redirecting ${shortcode} -> ${entry.originalUrl}`);
   return res.redirect(entry.originalUrl);
 };
